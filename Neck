@@ -1,0 +1,368 @@
+#include "HCPCA9685.h"
+#define  I2CAdd 0x40
+HCPCA9685 HCPCA9685(I2CAdd);
+#include "HX711.h"
+#define calibration_factor -7050.0 
+#define DOUT1  2
+#define CLK1   3 
+#define DOUT2  4 
+#define CLK2   5
+#define DOUT3  6
+#define CLK3   7
+#define DOUT4  8 
+#define CLK4   9 
+HX711 scale1;
+HX711 scale2;
+HX711 scale3;
+HX711 scale4;
+int X_pos = 0;
+int Y_pos = 0;
+int left = 0;
+int right = 8;
+int acc = 25;// pitching :30  rolling:35
+int lmin = 10;
+int rmin = 170;
+int rangep =30;
+int ranger =25;
+int raw_ranger =0;// pitching :30  rolling:25
+int lmaxp =lmin+rangep;
+int rmaxp=rmin-rangep;
+int lmaxr =lmin+ranger;
+int rmaxr=rmin-ranger;
+int lastrangep=0;
+int lastranger1=15;
+int lastranger2=0;
+int diff=0;
+float ld=0;
+int Current_L_Angle=10;
+int Current_R_Angle=170;
+void setup() {
+ Serial.begin(9600);
+  scale1.begin(DOUT1, CLK1);
+  scale1.set_scale(calibration_factor);
+  scale1.tare();
+ scale2.begin(DOUT2, CLK2);
+  scale2.set_scale(calibration_factor);
+  scale2.tare();
+   scale3.begin(DOUT3, CLK3);
+  scale3.set_scale(calibration_factor);
+  scale3.tare();
+   scale4.begin(DOUT4, CLK4);
+  scale4.set_scale(calibration_factor);
+  scale4.tare();
+HCPCA9685.Init(SERVO_MODE);
+HCPCA9685.Servo(left, angle(10));//10
+HCPCA9685.Servo(right, angle(170));//170
+HCPCA9685.Sleep(false);
+HCPCA9685.Servo(left, angle(10));//10
+HCPCA9685.Servo(right, angle(170));//170
+}
+void loop() {
+DataRead();  
+int f1 =scale1.get_units();
+f1=abs(f1);
+int f2 =scale2.get_units();
+f2=abs(f2);
+int f3 =scale3.get_units();
+f3=abs(f3);
+int f4 =scale4.get_units();
+f4=abs(f4);
+int force = f1+ f2+ f3 + f4;
+/*Serial.println(f1);
+Serial.println(f2);
+Serial.println(f3);
+Serial.println(f4);
+Serial.println(force);*/
+if (force<2){
+f1 =0;
+f2 =0;
+f3 =0;
+f4 =0;
+  }
+if (force ==0)
+{
+ X_pos = 0;
+Y_pos = 0;
+  }
+else{
+X_pos = abs(((f1+f2)*100)/force);//3,4  1 2
+Y_pos = abs(((f1+f4)*100)/force);}//2,3  1 4
+force = map(force,0,400,0,100);
+if(force>100){
+force = 100;
+  }
+Serial.println(String(force)+":"+String(X_pos)+":"+String(Y_pos));
+delay(100);
+}
+void DataRead(){
+
+if(Serial.available()>0){
+  String data= Serial.readString();
+  String type = data.substring(0,1);
+  int val= data.substring(2,4).toInt();
+  int lmin = 10;
+  int rmin = 170;
+  if(type=="S"){
+    S(val);
+    }
+  else if(type=="R"){
+    R(val);
+    }
+  else if (type=="P"){
+    P(val);
+    }
+  }}
+  void R(int angler){
+    raw_ranger=angler;
+    int middle =15;
+    int LMax = 40;
+    int RMax = 130;
+    int LMin=10;
+    int RMin =170;
+    if (raw_ranger<15)
+    {
+      ranger=15-raw_ranger;
+     if(raw_ranger<lastranger1)
+     {
+      int currentl =Current_L_Angle;
+      int currentr =Current_R_Angle;
+      roll_R_Up(currentl,currentr);
+      }
+     else
+     {
+     int currentl =Current_L_Angle;
+      int currentr =Current_R_Angle;
+      roll_L_Up(currentl,currentr);
+     }
+     }
+     else if (raw_ranger ==15){
+      int diffL=abs(Current_L_Angle-LMin);
+      int diffR=abs(RMin-Current_R_Angle);
+      int diff=diffL-diffR;
+      if(diff<0){
+         int current =Current_R_Angle;
+        ranger=abs(diff);
+        roll_R_Down(current);
+        }
+      else{
+        int current =Current_L_Angle;
+        ranger=abs(diff);
+        roll_L_Down(current);
+        }
+      }
+    else if(raw_ranger<30)
+    { 
+    ranger=raw_ranger-15;
+    if(raw_ranger>lastranger2)
+     {
+      int currentl =Current_L_Angle;
+      int currentr =Current_R_Angle;
+      roll_L_Up(currentl,currentr);
+      }
+     else
+     {
+     int currentl =Current_L_Angle;
+      int currentr =Current_R_Angle;
+      roll_R_Up(currentl,currentr);
+     }
+      }
+    lastranger1=raw_ranger;
+    lastranger2=raw_ranger;
+    }
+  void P(int anglep){
+      rangep=anglep;
+      diff=abs(rangep-lastrangep);
+      lmin=10+(lastrangep);
+      rmin=170-(lastrangep);
+      lmaxp=lmin+diff;
+      rmaxp=rmin-diff;
+  if(rangep>lastrangep){
+     int currentl =Current_L_Angle;
+     int currentr =Current_R_Angle;
+    pitchUp(currentl,currentr);
+    }
+    else{
+     int currentl =Current_L_Angle;
+     int currentr =Current_R_Angle;
+      pitchDown(currentl,currentr);
+      }  
+  lastrangep=rangep;
+    }
+  
+  void S(int val){
+  int    value=val;
+    if (value==60){
+      ranger=5;
+      synchro();
+      }
+      else if (value==70){
+      ranger=10;
+      synchro();
+      }
+      else if (value==80){
+      ranger=15;
+      synchro();
+      }
+      else if (value==90){
+      ranger=20;
+      synchro();
+      }
+      else if (value==100){
+      ranger=25;
+      synchro();
+      }
+    }
+int angle(int angle){
+    int pos=map(angle,0,180,10,430);
+    return pos;
+    }
+void roll_R_Down(int current){unsigned int Pos;
+    for(Pos = 0; Pos <= ranger; Pos++)
+  {
+    if((current+Pos)>170)
+    {Current_R_Angle=170;
+      break;}
+    HCPCA9685.Servo(right, angle(current+Pos));
+    delay(dcontrol2(ranger,Pos));
+   }
+   Current_R_Angle=current+Pos;
+   }
+void roll_L_Down(int current){unsigned int Pos;
+    for(Pos = 0; Pos <= ranger; Pos++)
+  {
+    if((current-Pos)<10 )
+    {Current_L_Angle=10;
+      break;}
+    HCPCA9685.Servo(left, angle(current-Pos));
+    delay(dcontrol2(ranger,Pos));
+   }
+   Current_L_Angle=current-Pos;
+   }
+void roll_L_Up(int currentl,int currentr){
+  unsigned int Pos;
+  for(Pos = 0; Pos <= ranger; Pos++)
+  {
+    if ((currentr+Pos)>=140 and(currentr+Pos)<=170 and (currentl+Pos)<=40){
+    HCPCA9685.Servo(left, angle(currentl+Pos));
+    HCPCA9685.Servo(right, angle(currentr+Pos));
+    delay(dcontrol2(ranger, Pos));
+}
+    else if ((currentl+Pos)<=40){
+    HCPCA9685.Servo(left, angle(currentl+Pos));
+    delay(dcontrol2(ranger, Pos));
+      }
+    }
+    if((currentr+Pos)<=170){
+    Current_R_Angle=currentr+Pos;    
+    }
+    else
+    {
+      Current_R_Angle=170;   
+      }
+    if((currentl+Pos)<=40){
+    Current_L_Angle=currentl+Pos;    
+    }
+    else
+    {
+      Current_L_Angle=40;   
+      }
+}
+void roll_R_Up(int currentl,int currentr){
+  unsigned int Pos;
+  for(Pos = 0; Pos <= ranger; Pos++)
+  {
+    
+    if ((currentl-Pos)<=40 and (currentl-Pos)>=10 and (currentr-Pos)>=140){
+    HCPCA9685.Servo(left, angle(currentl-Pos));
+    HCPCA9685.Servo(right, angle(currentr-Pos));
+    delay(dcontrol2(ranger, Pos));
+    }
+    else if ((currentr-Pos)>=140){
+    HCPCA9685.Servo(right, angle(currentr-Pos));
+    delay(dcontrol2(ranger, Pos));
+      }
+    }
+    
+    if((currentr-Pos)>=140){
+    Current_R_Angle=currentr-Pos;    
+    }
+    else
+    {
+      Current_R_Angle=140;   
+      }
+      
+    if((currentl-Pos)>=10){
+    Current_L_Angle=currentl-Pos;    
+    }
+    else
+    {
+      Current_L_Angle=10;   
+      }
+}
+void pitchUp(int currentl,int currentr){
+  
+  unsigned int Pos;
+  for(Pos = 0; Pos <= diff; Pos++)
+  {
+    if((currentl+Pos)>40 or (currentr-Pos)<140)
+    {rangep=30;
+      break;}
+    HCPCA9685.Servo(left, angle(currentl+Pos));
+    HCPCA9685.Servo(right, angle(currentr-Pos));
+    delay(dcontrol2(diff,Pos));
+    }
+    Current_L_Angle=currentl+Pos;
+    Current_R_Angle=currentr-Pos;
+}
+void pitchDown(int currentl,int currentr){
+  
+  unsigned int Pos;
+  for(Pos = 0; Pos <= diff; Pos++)
+  {
+    if((currentl-Pos)<10 or (currentr+Pos)>170)
+    {rangep=0;
+      break;}
+    HCPCA9685.Servo(left, angle(currentl-Pos));
+    HCPCA9685.Servo(right, angle(currentr+Pos));
+    delay(dcontrol2(diff, Pos));
+}
+Current_L_Angle=currentl-Pos;
+    Current_R_Angle=currentr+Pos;
+}
+int dcontrol2(int range, int current_pos){
+   float dtime = range*0.2;
+    if (range<5)
+    {
+      dtime=acc;
+      return dtime;
+      }
+      else{
+   
+    if (current_pos<dtime*1){
+      dtime=acc-current_pos;
+      ld=dtime;
+      return dtime;
+      }
+      else if(current_pos<dtime*4){
+      return ld;
+        }
+       else{
+        ld=ld+1;
+        dtime=ld;
+      return dtime;
+        }}
+    }
+ void synchro(){
+  unsigned int Pos;
+  for(Pos = 0; Pos <= ranger; Pos++)
+  {
+    HCPCA9685.Servo(left, angle(10+Pos));
+    delay(dcontrol2(ranger, Pos));
+    }
+  for(Pos = 0; Pos <= ranger; Pos++)
+  {
+    HCPCA9685.Servo(left, angle(10+ranger-Pos));
+
+    delay(dcontrol2(ranger, Pos));
+    }
+}
